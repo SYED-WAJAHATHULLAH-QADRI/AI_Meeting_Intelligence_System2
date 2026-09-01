@@ -1,15 +1,14 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-import tempfile
-import json
 import whisper
 from google import genai
+import os
 
 
-# ==============================
+# =====================================================
 # PAGE CONFIG
-# ==============================
+# =====================================================
 
 st.set_page_config(
     page_title="AI Meeting Intelligence System",
@@ -17,32 +16,53 @@ st.set_page_config(
 )
 
 
-st.title(
-    "AI Meeting Intelligence System (AIMIS)"
-)
+st.title("AI Meeting Intelligence System (AIMIS)")
 
 st.write(
-    "AI-powered meeting transcription and intelligence extraction"
+    "AI-powered meeting transcription, analysis and evaluation dashboard"
 )
 
 
 # =====================================================
-# PART 1: USER MEETING PROCESSING APPLICATION
+# LOAD WHISPER MODEL
 # =====================================================
 
-st.header(
-    "1. Process New Meeting"
-)
+@st.cache_resource
+def load_whisper_model():
+
+    return whisper.load_model(
+        "small.en"
+    )
+
+
+# =====================================================
+# GEMINI CLIENT
+# =====================================================
+
+def get_gemini_client():
+
+    return genai.Client(
+        api_key=st.secrets["GEMINI_API_KEY"]
+    )
+
+
+# =====================================================
+# PART 1 - LIVE MEETING PROCESSING
+# =====================================================
+
+
+st.header("1. Process New Meeting")
 
 
 uploaded_audio = st.file_uploader(
-    "Upload meeting audio",
+    "Upload meeting audio file",
     type=[
         "mp3",
         "wav",
         "m4a"
     ]
 )
+
 
 
 if uploaded_audio:
@@ -54,34 +74,39 @@ if uploaded_audio:
 
 
     if st.button(
-        "Process Meeting"
+        "Process Meeting",
+        type="primary"
     ):
 
 
+        # -----------------------------------------
+        # SAVE AUDIO FILE
+        # -----------------------------------------
+
+        audio_path = "uploaded_meeting.mp3"
+
+
+        with open(
+            audio_path,
+            "wb"
+        ) as f:
+
+            f.write(
+                uploaded_audio.getbuffer()
+            )
+
+
+        # -----------------------------------------
+        # WHISPER TRANSCRIPTION
+        # -----------------------------------------
+
+
         with st.spinner(
-            "Transcribing audio using Whisper..."
+            "Running Whisper transcription..."
         ):
 
 
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".mp3"
-            ) as temp_audio:
-
-
-                temp_audio.write(
-                    uploaded_audio.read()
-                )
-
-                audio_path = temp_audio.name
-
-
-
-            # Whisper
-
-            model = whisper.load_model(
-                "small.en"
-            )
+            model = load_whisper_model()
 
 
             transcription = model.transcribe(
@@ -94,49 +119,57 @@ if uploaded_audio:
 
 
         st.success(
-            "Audio transcription completed"
+            "Transcription completed"
         )
 
 
         st.subheader(
-            "Transcript"
-        )
-
-        st.write(
-            transcript
+            "Meeting Transcript"
         )
 
 
+        st.text_area(
+            "Transcript",
+            transcript,
+            height=250
+        )
 
-        # ==============================
-        # GEMINI PROCESSING
-        # ==============================
 
 
-        st.spinner(
+        # -----------------------------------------
+        # GEMINI ANALYSIS
+        # -----------------------------------------
+
+
+        with st.spinner(
             "Generating meeting intelligence..."
-        )
+        ):
 
 
-        client = genai.Client(
-            api_key=st.secrets["GEMINI_API_KEY"]
-        )
+            client = get_gemini_client()
 
 
-        prompt=f"""
+            prompt = f"""
 
 You are an AI meeting intelligence assistant.
 
-Analyze the transcript below.
+Analyse the following meeting transcript.
 
 Extract:
 
 1. Meeting summary
-2. Key decisions
-3. Action items
-4. Responsible persons
-5. Deadlines
-6. Evidence quotes
+
+2. Key topics
+
+3. Decisions
+
+4. Action items
+
+5. Owners
+
+6. Deadlines
+
+7. Evidence quotes
 
 
 Transcript:
@@ -146,16 +179,16 @@ Transcript:
 """
 
 
-        response = client.models.generate_content(
+            response = client.models.generate_content(
 
-            model="gemini-3.5-flash-lite",
+                model="gemini-3.5-flash-lite",
 
-            contents=prompt
+                contents=prompt
 
-        )
+            )
 
 
-        result=response.text
+            intelligence = response.text
 
 
 
@@ -165,30 +198,31 @@ Transcript:
 
 
         st.subheader(
-            "Meeting Intelligence Report"
+            "AI Meeting Intelligence Report"
         )
 
 
         st.write(
-            result
+            intelligence
         )
 
 
 
 # =====================================================
-# PART 2: EVALUATION DASHBOARD
+# PART 2 - EXPERIMENTAL EVALUATION DASHBOARD
 # =====================================================
 
 
 st.divider()
 
+
 st.header(
-    "2. AIMIS Evaluation Dashboard"
+    "2. AIMIS Experimental Evaluation"
 )
 
 
 
-files=[
+evaluation_files = [
 
 "M01_generic_vs_structured_extraction_metrics.csv",
 
@@ -200,21 +234,22 @@ files=[
 
 
 
-for file in files:
+for file in evaluation_files:
 
 
-    path=Path(file)
+    file_path = Path(file)
 
 
-    if path.exists():
+    if file_path.exists():
+
 
         st.subheader(
             file
         )
 
 
-        df=pd.read_csv(
-            path
+        df = pd.read_csv(
+            file_path
         )
 
 
@@ -230,3 +265,16 @@ for file in files:
         st.warning(
             f"{file} not found"
         )
+
+
+
+# =====================================================
+# FOOTER
+# =====================================================
+
+
+st.divider()
+
+st.caption(
+    "AI Meeting Intelligence System - MSc Project Prototype"
+)
