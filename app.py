@@ -3,23 +3,30 @@ import pandas as pd
 from pathlib import Path
 import whisper
 from google import genai
+import shutil
+import subprocess
 import os
 
 
 # =====================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # =====================================================
 
 st.set_page_config(
     page_title="AI Meeting Intelligence System",
+    page_icon="🎙️",
     layout="wide"
 )
 
 
-st.title("AI Meeting Intelligence System (AIMIS)")
+st.title("🎙️ AI Meeting Intelligence System (AIMIS)")
 
 st.write(
-    "AI-powered meeting transcription, analysis and evaluation dashboard"
+    """
+    An AI-based system for automatic meeting transcription,
+    decision extraction, action-item identification,
+    and evaluation.
+    """
 )
 
 
@@ -28,30 +35,34 @@ st.write(
 # =====================================================
 
 @st.cache_resource
-def load_whisper_model():
+def load_whisper():
 
-    return whisper.load_model(
+    model = whisper.load_model(
         "small.en"
     )
+
+    return model
+
 
 
 # =====================================================
 # GEMINI CLIENT
 # =====================================================
 
-def get_gemini_client():
+def gemini_client():
 
     return genai.Client(
         api_key=st.secrets["GEMINI_API_KEY"]
     )
 
 
+
 # =====================================================
-# PART 1 - LIVE MEETING PROCESSING
+# SECTION 1
+# AUDIO UPLOAD AND PROCESSING
 # =====================================================
 
-
-st.header("1. Process New Meeting")
+st.header("1. Upload and Process Meeting")
 
 
 uploaded_audio = st.file_uploader(
@@ -74,16 +85,20 @@ if uploaded_audio:
 
 
     if st.button(
-        "Process Meeting",
-        type="primary"
+        "🚀 Process Meeting"
     ):
 
 
-        # -----------------------------------------
-        # SAVE AUDIO FILE
-        # -----------------------------------------
+        # ---------------------------------------------
+        # Save uploaded file
+        # ---------------------------------------------
 
-        audio_path = "uploaded_meeting.mp3"
+        extension = uploaded_audio.name.split(".")[-1]
+
+
+        audio_path = (
+            f"meeting_audio.{extension}"
+        )
 
 
         with open(
@@ -96,9 +111,34 @@ if uploaded_audio:
             )
 
 
-        # -----------------------------------------
-        # WHISPER TRANSCRIPTION
-        # -----------------------------------------
+        st.info(
+            f"Audio saved: {audio_path}"
+        )
+
+
+
+        # ---------------------------------------------
+        # Check FFmpeg
+        # ---------------------------------------------
+
+        if shutil.which("ffmpeg") is None:
+
+            st.error(
+                "FFmpeg is missing. Add packages.txt with ffmpeg."
+            )
+
+            st.stop()
+
+
+        st.success(
+            "FFmpeg detected"
+        )
+
+
+
+        # ---------------------------------------------
+        # Whisper transcription
+        # ---------------------------------------------
 
 
         with st.spinner(
@@ -106,15 +146,15 @@ if uploaded_audio:
         ):
 
 
-            model = load_whisper_model()
+            whisper_model = load_whisper()
 
 
-            transcription = model.transcribe(
+            result = whisper_model.transcribe(
                 audio_path
             )
 
 
-            transcript = transcription["text"]
+            transcript = result["text"]
 
 
 
@@ -124,21 +164,21 @@ if uploaded_audio:
 
 
         st.subheader(
-            "Meeting Transcript"
+            "📝 Meeting Transcript"
         )
 
 
         st.text_area(
             "Transcript",
             transcript,
-            height=250
+            height=300
         )
 
 
 
-        # -----------------------------------------
-        # GEMINI ANALYSIS
-        # -----------------------------------------
+        # ---------------------------------------------
+        # Gemini extraction
+        # ---------------------------------------------
 
 
         with st.spinner(
@@ -146,14 +186,15 @@ if uploaded_audio:
         ):
 
 
-            client = get_gemini_client()
+            client = gemini_client()
+
 
 
             prompt = f"""
 
 You are an AI meeting intelligence assistant.
 
-Analyse the following meeting transcript.
+Analyze this meeting transcript.
 
 Extract:
 
@@ -165,11 +206,18 @@ Extract:
 
 4. Action items
 
-5. Owners
+5. Responsible owners
 
 6. Deadlines
 
 7. Evidence quotes
+
+
+Rules:
+
+- Only include confirmed decisions.
+- Do not convert suggestions into decisions.
+- Include evidence from transcript.
 
 
 Transcript:
@@ -177,6 +225,7 @@ Transcript:
 {transcript}
 
 """
+
 
 
             response = client.models.generate_content(
@@ -197,8 +246,9 @@ Transcript:
         )
 
 
-        st.subheader(
-            "AI Meeting Intelligence Report"
+
+        st.header(
+            "🤖 AI Meeting Intelligence Report"
         )
 
 
@@ -208,8 +258,23 @@ Transcript:
 
 
 
+        # Save output
+
+        with open(
+            "latest_meeting_report.txt",
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(
+                intelligence
+            )
+
+
+
 # =====================================================
-# PART 2 - EXPERIMENTAL EVALUATION DASHBOARD
+# SECTION 2
+# EXISTING EXPERIMENTAL RESULTS
 # =====================================================
 
 
@@ -217,24 +282,24 @@ st.divider()
 
 
 st.header(
-    "2. AIMIS Experimental Evaluation"
+    "2. AIMIS Experimental Evaluation Dashboard"
 )
 
 
 
-evaluation_files = [
+files = [
 
-"M01_generic_vs_structured_extraction_metrics.csv",
+    "M01_generic_vs_structured_extraction_metrics.csv",
 
-"asr_results.csv",
+    "asr_results.csv",
 
-"prompt_repeatability_summary.csv"
+    "prompt_repeatability_summary.csv"
 
 ]
 
 
 
-for file in evaluation_files:
+for file in files:
 
 
     file_path = Path(file)
@@ -248,13 +313,13 @@ for file in evaluation_files:
         )
 
 
-        df = pd.read_csv(
+        data = pd.read_csv(
             file_path
         )
 
 
         st.dataframe(
-            df,
+            data,
             use_container_width=True
         )
 
@@ -275,6 +340,7 @@ for file in evaluation_files:
 
 st.divider()
 
+
 st.caption(
-    "AI Meeting Intelligence System - MSc Project Prototype"
+    "AI Meeting Intelligence System (AIMIS) - MSc Project Prototype"
 )
