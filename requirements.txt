@@ -3,3 +3,4 @@ pandas
 openai-whisper
 google-genai
 torch
+ffmpeg-python
