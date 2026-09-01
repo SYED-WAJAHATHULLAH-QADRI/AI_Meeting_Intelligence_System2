@@ -1,0 +1,12 @@
+numpy
+pandas
+torch
+openai-whisper
+google-genai
+pydantic
+rapidfuzz
+openpyxl
+scikit-learn
+matplotlib
+tqdm
+streamlit
