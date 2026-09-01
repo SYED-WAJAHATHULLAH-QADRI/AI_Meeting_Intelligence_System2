@@ -11,7 +11,7 @@ st.write(
 )
 
 
-folder = Path("results")
+folder = Path(".")
 
 
 files = [
