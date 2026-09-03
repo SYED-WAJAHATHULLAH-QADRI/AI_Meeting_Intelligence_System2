@@ -1,7 +1,0 @@
-meeting_id,prompt_type,run_number,status,latency_seconds,decision_count,action_item_count,unresolved_issue_count,ambiguity_count,http_403,http_429
-M01,generic,1,SUCCESS,2.846,3,5,2,0,False,False
-M01,generic,2,SUCCESS,2.956,3,5,1,0,False,False
-M01,generic,3,SUCCESS,2.722,3,5,1,0,False,False
-M01,structured,1,SUCCESS,2.879,3,5,2,0,False,False
-M01,structured,2,SUCCESS,2.975,3,5,1,0,False,False
-M01,structured,3,SUCCESS,2.493,1,5,2,0,False,False
