@@ -1,2 +1,0 @@
-meeting_id,whisper_model,device,gpu,reference_word_count,whisper_word_count,processing_time_seconds,wer,wer_percent,cer,cer_percent,approx_word_accuracy_percent
-M01,small.en,cuda,Tesla T4,745,747,24.352,0.0282,2.82,0.0089,0.89,97.18
