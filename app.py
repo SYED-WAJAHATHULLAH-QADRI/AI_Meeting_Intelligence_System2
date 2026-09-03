@@ -7,7 +7,7 @@ import os
 import time
 import shutil
 import tempfile
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 import pandas as pd
 import streamlit as st
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 # ============================================================
 
 st.set_page_config(
-    page_title="AIMIS | AI Meeting Intelligence",
+    page_title="AIMIS | AI Meeting Intelligence System",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -30,83 +30,60 @@ st.set_page_config(
 
 
 # ============================================================
-# 2. CUSTOM DESIGN
+# 2. CUSTOM CSS
 # ============================================================
 
 st.markdown(
     """
-    <style>
+<style>
+.main-title {
+    font-size: 45px;
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 10px;
+}
 
-    .stApp {
-        background-color: #0e1117;
-    }
+.main-subtitle {
+    font-size: 18px;
+    opacity: 0.80;
+    line-height: 1.6;
+    margin-bottom: 5px;
+}
 
-    .main-title {
-        font-size: 46px;
-        font-weight: 800;
-        margin-bottom: 5px;
-    }
+.hero-box {
+    padding: 28px;
+    border-radius: 18px;
+    border: 1px solid rgba(120,120,120,0.25);
+    background: linear-gradient(
+        135deg,
+        rgba(30, 70, 140, 0.25),
+        rgba(20, 25, 35, 0.15)
+    );
+    margin-bottom: 25px;
+}
 
-    .subtitle {
-        font-size: 18px;
-        color: #a9b4c2;
-        margin-bottom: 25px;
-    }
+.section-label {
+    font-size: 28px;
+    font-weight: 700;
+    margin-top: 10px;
+    margin-bottom: 12px;
+}
 
-    .hero-box {
-        padding: 25px;
-        border-radius: 16px;
-        background:
-            linear-gradient(
-                135deg,
-                rgba(30, 70, 140, 0.35),
-                rgba(25, 25, 35, 0.85)
-            );
-        border: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 25px;
-    }
-
-    .metric-card {
-        padding: 18px;
-        border-radius: 14px;
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        text-align: center;
-    }
-
-    .section-title {
-        margin-top: 20px;
-        margin-bottom: 15px;
-        font-size: 27px;
-        font-weight: 700;
-    }
-
-    .success-box {
-        padding: 15px;
-        border-radius: 10px;
-        background-color: rgba(35, 134, 54, 0.15);
-        border: 1px solid rgba(35, 134, 54, 0.5);
-    }
-
-    .footer {
-        text-align: center;
-        color: #8b949e;
-        padding-top: 25px;
-        font-size: 13px;
-    }
-
-    div[data-testid="stFileUploader"] {
-        border-radius: 12px;
-    }
-
-    </style>
-    """,
+.footer-box {
+    text-align: center;
+    opacity: 0.65;
+    font-size: 13px;
+    padding-top: 15px;
+    padding-bottom: 15px;
+}
+</style>
+""",
     unsafe_allow_html=True
 )
 
 
 # ============================================================
-# 3. CONSTANTS
+# 3. SYSTEM CONFIGURATION
 # ============================================================
 
 WHISPER_MODEL_NAME = "small.en"
@@ -115,7 +92,7 @@ GEMINI_MODEL = "gemini-3.6-flash"
 
 
 # ============================================================
-# 4. STRUCTURED OUTPUT SCHEMA
+# 4. STRUCTURED MEETING INTELLIGENCE SCHEMA
 # ============================================================
 
 class Decision(BaseModel):
@@ -137,22 +114,29 @@ class Decision(BaseModel):
 class ActionItem(BaseModel):
 
     action: str = Field(
-        description="Task or action identified in the meeting."
+        description="Task or action identified during the meeting."
     )
 
     owner: Optional[str] = Field(
         default=None,
-        description="Responsible person if explicitly identified."
+        description=(
+            "Responsible person if explicitly identifiable "
+            "from the transcript."
+        )
     )
 
     deadline: Optional[str] = Field(
         default=None,
-        description="Deadline if explicitly stated."
+        description=(
+            "Deadline if explicitly stated in the transcript."
+        )
     )
 
-    status: str = Field(
-        description="assigned, proposed, or unclear"
-    )
+    status: Literal[
+        "assigned",
+        "proposed",
+        "unclear"
+    ]
 
     evidence: str = Field(
         description="Transcript evidence supporting the action."
@@ -182,110 +166,172 @@ class MeetingIntelligence(BaseModel):
 
 
 # ============================================================
-# 5. LOAD WHISPER
+# 5. LOAD WHISPER MODEL
 # ============================================================
 
 @st.cache_resource
 def load_whisper_model():
 
-    return whisper.load_model(
+    model = whisper.load_model(
         WHISPER_MODEL_NAME
     )
 
+    return model
+
 
 # ============================================================
-# 6. GEMINI CLIENT
+# 6. LOAD GEMINI CLIENT
 # ============================================================
 
 @st.cache_resource
 def load_gemini_client():
 
-    if "GEMINI_API_KEY" not in st.secrets:
+    try:
+
+        api_key = st.secrets[
+            "GEMINI_API_KEY"
+        ]
+
+    except Exception:
 
         return None
 
+
     return genai.Client(
-        api_key=st.secrets["GEMINI_API_KEY"]
+        api_key=api_key
     )
 
 
 # ============================================================
-# 7. GEMINI PROMPT
+# 7. CREATE STRUCTURED GEMINI PROMPT
 # ============================================================
 
 def create_meeting_prompt(
-    transcript
+    transcript: str
 ):
 
     return f"""
 You are an AI Meeting Intelligence System.
 
-Analyse the complete meeting transcript and extract accurate,
-structured meeting intelligence.
+Analyse the entire meeting transcript carefully.
 
-Follow these rules carefully.
+Your task is to extract accurate and structured
+meeting intelligence.
+
+Follow all rules below.
+
 
 1. MEETING SUMMARY
-Provide a concise factual summary of the meeting.
+
+Provide a concise and factual summary of the meeting.
+
 
 2. KEY TOPICS
-Identify the principal subjects discussed.
 
-3. DECISIONS
-Record only confirmed decisions.
+Identify the main subjects discussed.
 
-A confirmed decision may include language such as:
+
+3. CONFIRMED DECISIONS
+
+Record only decisions that were clearly confirmed.
+
+Examples of decision signals include:
 
 - "we agreed"
 - "we decided"
 - "it is confirmed"
-- "we will proceed"
 - "the final decision is"
+- "we will proceed with"
 
-Do not classify suggestions, possibilities, rejected proposals,
-or unresolved discussions as decisions.
+Do NOT treat the following as confirmed decisions:
+
+- suggestions
+- possibilities
+- rejected proposals
+- opinions
+- unresolved alternatives
+
 
 4. ACTION ITEMS
-Identify tasks that someone has:
 
-- accepted,
-- been assigned,
-- committed to complete.
+Record tasks where someone:
+
+- accepted responsibility,
+- was directly assigned responsibility,
+- explicitly committed to completing something.
+
 
 5. OWNERS
-Only assign an owner when responsibility is clearly stated
-or directly identifiable from the transcript.
 
-If no owner is identified, return null.
+Only record an owner when the responsible person
+is identifiable from the transcript.
+
+If no owner is identifiable:
+
+owner = null
+
 
 6. DEADLINES
-Only include a deadline when a date, day, time,
+
+Only record a deadline if a date, day, time,
 or explicit timeframe is stated.
 
-If no deadline is stated, return null.
+If no deadline is given:
 
-7. EVIDENCE
-Every decision and action item must contain supporting
-evidence from the transcript.
+deadline = null
 
-8. HALLUCINATION CONTROL
-Do not invent:
 
-- decisions,
-- action items,
-- owners,
-- deadlines,
-- dates,
-- facts.
+7. ACTION STATUS
 
-9. UNRESOLVED ISSUES
+Use one of:
+
+assigned
+proposed
+unclear
+
+
+8. EVIDENCE
+
+Every decision and every action item must contain
+supporting evidence from the transcript.
+
+
+9. HALLUCINATION CONTROL
+
+Never invent:
+
+- decisions
+- action items
+- owners
+- deadlines
+- dates
+- people
+- facts
+
+
+10. UNRESOLVED ISSUES
+
 Identify matters discussed but not finally resolved.
 
-10. AMBIGUITIES
-Identify statements that may require human clarification.
 
-Before returning the result, scan the entire transcript
-for completeness.
+11. AMBIGUITIES
+
+Identify statements requiring clarification
+or human interpretation.
+
+
+12. FINAL COMPLETENESS CHECK
+
+Before returning the answer:
+
+- scan the entire transcript,
+- check every confirmed decision,
+- check every assigned action,
+- check owners,
+- check deadlines,
+- check unresolved matters,
+- avoid unsupported information.
+
 
 MEETING TRANSCRIPT
 ------------------
@@ -299,16 +345,17 @@ MEETING TRANSCRIPT
 # ============================================================
 
 def analyse_meeting(
-    transcript
+    transcript: str
 ):
 
     client = load_gemini_client()
 
+
     if client is None:
 
         raise RuntimeError(
-            "GEMINI_API_KEY has not been configured "
-            "in Streamlit secrets."
+            "GEMINI_API_KEY is not configured "
+            "in Streamlit Secrets."
         )
 
 
@@ -333,7 +380,7 @@ def analyse_meeting(
     )
 
 
-    intelligence = (
+    result = (
         MeetingIntelligence
         .model_validate_json(
             interaction.output_text
@@ -341,7 +388,7 @@ def analyse_meeting(
     )
 
 
-    return intelligence
+    return result
 
 
 # ============================================================
@@ -350,7 +397,9 @@ def analyse_meeting(
 
 with st.sidebar:
 
-    st.title("🎙️ AIMIS")
+    st.title(
+        "🎙️ AIMIS"
+    )
 
     st.caption(
         "AI Meeting Intelligence System"
@@ -358,47 +407,57 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown(
-        "### System Pipeline"
+
+    st.subheader(
+        "System Pipeline"
     )
+
 
     st.markdown(
         """
-        **1. Upload Audio**
+**1. Upload Meeting Audio**
 
-        ↓
+↓
 
-        **2. Whisper ASR**
+**2. Whisper ASR**
 
-        ↓
+↓
 
-        **3. Meeting Transcript**
+**3. Meeting Transcript**
 
-        ↓
+↓
 
-        **4. Gemini Analysis**
+**4. Gemini Analysis**
 
-        ↓
+↓
 
-        **5. Meeting Intelligence**
-        """
+**5. Meeting Intelligence**
+"""
     )
+
 
     st.divider()
 
-    st.markdown(
-        "### AI Models"
+
+    st.subheader(
+        "System Components"
     )
 
-    st.write(
-        f"**Speech-to-Text:** {WHISPER_MODEL_NAME}"
-    )
 
     st.write(
-        f"**Meeting Intelligence:** {GEMINI_MODEL}"
+        f"🎧 **Speech Recognition**  \n"
+        f"{WHISPER_MODEL_NAME}"
     )
+
+
+    st.write(
+        f"🧠 **Meeting Intelligence**  \n"
+        f"{GEMINI_MODEL}"
+    )
+
 
     st.divider()
+
 
     st.caption(
         "MSc Computing Project Prototype"
@@ -406,61 +465,66 @@ with st.sidebar:
 
 
 # ============================================================
-# 10. HERO
+# 10. HERO SECTION
+#
+# IMPORTANT:
+# HTML begins from the left edge.
+# This prevents Streamlit displaying it as code.
 # ============================================================
 
 st.markdown(
     """
-    <div class="hero-box">
-
-        <div class="main-title">
-        🎙️ AI Meeting Intelligence System
-        </div>
-
-        <div class="subtitle">
-        Automatically transform meeting audio into
-        transcripts, summaries, decisions, action items,
-        owners, deadlines and follow-up intelligence.
-        </div>
-
-    </div>
-    """,
+<div class="hero-box">
+<div class="main-title">🎙️ AI Meeting Intelligence System</div>
+<div class="main-subtitle">
+Automatically transform meeting audio into transcripts, summaries,
+decisions, action items, responsible owners, deadlines,
+unresolved issues and follow-up intelligence.
+</div>
+</div>
+""",
     unsafe_allow_html=True
 )
 
 
 # ============================================================
-# 11. FEATURE CARDS
+# 11. SYSTEM WORKFLOW CARDS
 # ============================================================
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4 = st.columns(
+    4
+)
+
 
 with col1:
 
     st.metric(
-        "🎧 Input",
-        "Audio Meeting"
+        label="🎧 Input",
+        value="Audio Meeting"
     )
+
 
 with col2:
 
     st.metric(
-        "📝 ASR",
-        "Whisper"
+        label="📝 Speech-to-Text",
+        value="Whisper"
     )
+
 
 with col3:
 
     st.metric(
-        "🧠 Intelligence",
-        "Gemini"
+        label="🧠 Intelligence",
+        value="Gemini"
     )
+
 
 with col4:
 
     st.metric(
-        "📋 Output",
-        "Structured Report"
+        label="📋 Output",
+        value="Structured Report"
     )
 
 
@@ -468,11 +532,13 @@ st.divider()
 
 
 # ============================================================
-# 12. AUDIO UPLOAD
+# 12. UPLOAD MEETING AUDIO
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">1. Upload Meeting Audio</div>',
+    '<div class="section-label">'
+    '1. Upload Meeting Audio'
+    '</div>',
     unsafe_allow_html=True
 )
 
@@ -488,33 +554,48 @@ uploaded_audio = st.file_uploader(
     ],
 
     help=(
-        "The recording will be transcribed using "
-        "Whisper and analysed using Gemini."
+        "The uploaded recording will be transcribed "
+        "using Whisper and analysed using Gemini."
     )
 )
 
 
+# ============================================================
+# 13. WAITING STATE
+# ============================================================
+
 if uploaded_audio is None:
 
     st.info(
-        "Upload a meeting recording to begin."
+        "👆 Upload a meeting recording to begin the analysis."
     )
 
 
 # ============================================================
-# 13. AUDIO PREVIEW
+# 14. AUDIO SELECTED
 # ============================================================
 
 if uploaded_audio is not None:
 
+
     st.success(
-        f"Audio loaded: {uploaded_audio.name}"
+        f"✅ Audio loaded successfully: "
+        f"{uploaded_audio.name}"
     )
+
+
+    # --------------------------------------------------------
+    # AUDIO PLAYER
+    # --------------------------------------------------------
 
     st.audio(
         uploaded_audio
     )
 
+
+    # --------------------------------------------------------
+    # FILE INFORMATION
+    # --------------------------------------------------------
 
     file_size_mb = (
         uploaded_audio.size /
@@ -522,19 +603,23 @@ if uploaded_audio is not None:
     )
 
 
-    info1, info2 = st.columns(2)
+    info_col1, info_col2 = (
+        st.columns(2)
+    )
 
-    with info1:
+
+    with info_col1:
 
         st.metric(
-            "File",
+            "Audio File",
             uploaded_audio.name
         )
 
-    with info2:
+
+    with info_col2:
 
         st.metric(
-            "Size",
+            "File Size",
             f"{file_size_mb:.2f} MB"
         )
 
@@ -543,12 +628,12 @@ if uploaded_audio is not None:
 
 
     # ========================================================
-    # 14. PROCESS BUTTON
+    # 15. PROCESS BUTTON
     # ========================================================
 
     process_button = st.button(
 
-        "🚀 Analyse Meeting",
+        "🚀 Process Meeting",
 
         type="primary",
 
@@ -560,7 +645,7 @@ if uploaded_audio is not None:
 
 
         # ====================================================
-        # CHECK FFMPEG
+        # 16. CHECK FFMPEG
         # ====================================================
 
         if shutil.which(
@@ -568,22 +653,23 @@ if uploaded_audio is not None:
         ) is None:
 
             st.error(
-                "FFmpeg is not available. "
-                "Ensure packages.txt contains: ffmpeg"
+                "FFmpeg is not available on the server."
+            )
+
+            st.info(
+                "Make sure packages.txt contains: ffmpeg"
             )
 
             st.stop()
 
 
         # ====================================================
-        # TEMPORARY AUDIO FILE
+        # 17. SAVE AUDIO TEMPORARILY
         # ====================================================
 
-        file_extension = (
-            os.path.splitext(
-                uploaded_audio.name
-            )[1]
-        )
+        file_extension = os.path.splitext(
+            uploaded_audio.name
+        )[1]
 
 
         with tempfile.NamedTemporaryFile(
@@ -591,9 +677,11 @@ if uploaded_audio is not None:
             suffix=file_extension
         ) as temp_file:
 
+
             temp_file.write(
                 uploaded_audio.getbuffer()
             )
+
 
             audio_path = (
                 temp_file.name
@@ -604,23 +692,23 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # WHISPER TRANSCRIPTION
+            # 18. WHISPER TRANSCRIPTION
             # =================================================
 
             st.markdown(
-                '<div class="section-title">'
-                '2. Speech-to-Text Transcription'
+                '<div class="section-label">'
+                '2. Meeting Transcription'
                 '</div>',
                 unsafe_allow_html=True
             )
 
 
             with st.spinner(
-                "Whisper is transcribing the meeting..."
+                "🎧 Whisper is transcribing the meeting..."
             ):
 
 
-                transcription_start = (
+                whisper_start = (
                     time.perf_counter()
                 )
 
@@ -632,8 +720,11 @@ if uploaded_audio is not None:
 
                 whisper_result = (
                     whisper_model.transcribe(
+
                         audio_path,
+
                         language="en",
+
                         temperature=0.0
                     )
                 )
@@ -647,51 +738,62 @@ if uploaded_audio is not None:
                 )
 
 
-                transcription_time = (
+                whisper_time = (
                     time.perf_counter()
                     -
-                    transcription_start
+                    whisper_start
                 )
 
 
             st.success(
-                "✅ Meeting transcription completed"
+                "✅ Meeting transcription completed."
             )
 
 
             # =================================================
-            # TRANSCRIPT
+            # 19. TRANSCRIPT DISPLAY
             # =================================================
+
+            st.subheader(
+                "📝 Meeting Transcript"
+            )
+
 
             st.text_area(
 
-                "Meeting Transcript",
+                "Transcribed meeting content",
 
                 value=transcript,
 
-                height=300
+                height=300,
+
+                key="meeting_transcript"
             )
 
 
-            transcript_words = len(
+            transcript_word_count = len(
                 transcript.split()
             )
 
 
-            t1, t2 = st.columns(2)
+            trans_col1, trans_col2 = (
+                st.columns(2)
+            )
 
-            with t1:
+
+            with trans_col1:
 
                 st.metric(
                     "Transcript Words",
-                    transcript_words
+                    transcript_word_count
                 )
 
-            with t2:
+
+            with trans_col2:
 
                 st.metric(
                     "Whisper Processing Time",
-                    f"{transcription_time:.2f} sec"
+                    f"{whisper_time:.2f} sec"
                 )
 
 
@@ -701,7 +803,9 @@ if uploaded_audio is not None:
 
                 data=transcript,
 
-                file_name="meeting_transcript.txt",
+                file_name=(
+                    "AIMIS_meeting_transcript.txt"
+                ),
 
                 mime="text/plain",
 
@@ -713,11 +817,11 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # GEMINI MEETING INTELLIGENCE
+            # 20. GEMINI ANALYSIS
             # =================================================
 
             st.markdown(
-                '<div class="section-title">'
+                '<div class="section-label">'
                 '3. AI Meeting Intelligence'
                 '</div>',
                 unsafe_allow_html=True
@@ -725,12 +829,12 @@ if uploaded_audio is not None:
 
 
             with st.spinner(
-                "Gemini is analysing decisions, "
-                "actions and meeting outcomes..."
+                "🧠 Gemini is analysing meeting "
+                "decisions, actions and outcomes..."
             ):
 
 
-                intelligence_start = (
+                gemini_start = (
                     time.perf_counter()
                 )
 
@@ -742,20 +846,20 @@ if uploaded_audio is not None:
                 )
 
 
-                intelligence_time = (
+                gemini_time = (
                     time.perf_counter()
                     -
-                    intelligence_start
+                    gemini_start
                 )
 
 
             st.success(
-                "✅ Meeting intelligence generated"
+                "✅ Meeting intelligence generated successfully."
             )
 
 
             # =================================================
-            # MEETING TITLE
+            # 21. MEETING TITLE
             # =================================================
 
             st.header(
@@ -764,7 +868,7 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # RESULT METRICS
+            # 22. ANALYSIS METRICS
             # =================================================
 
             metric1, metric2, metric3, metric4 = (
@@ -805,19 +909,22 @@ if uploaded_audio is not None:
             with metric4:
 
                 st.metric(
-                    "AI Analysis Time",
-                    f"{intelligence_time:.2f}s"
+                    "Gemini Time",
+                    f"{gemini_time:.2f} sec"
                 )
 
 
+            st.divider()
+
+
             # =================================================
-            # TABS
+            # 23. RESULT TABS
             # =================================================
 
             (
                 summary_tab,
-                decisions_tab,
-                actions_tab,
+                decision_tab,
+                action_tab,
                 followup_tab,
                 technical_tab
             ) = st.tabs(
@@ -832,14 +939,16 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # SUMMARY TAB
+            # 24. SUMMARY TAB
             # =================================================
 
             with summary_tab:
 
+
                 st.subheader(
                     "Meeting Summary"
                 )
+
 
                 st.write(
                     intelligence.summary
@@ -851,15 +960,19 @@ if uploaded_audio is not None:
                 )
 
 
-                if intelligence.key_topics:
+                if (
+                    intelligence.key_topics
+                ):
+
 
                     for topic in (
                         intelligence.key_topics
                     ):
 
                         st.markdown(
-                            f"- **{topic}**"
+                            f"- {topic}"
                         )
+
 
                 else:
 
@@ -869,27 +982,30 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # DECISIONS TAB
+            # 25. DECISIONS TAB
             # =================================================
 
-            with decisions_tab:
+            with decision_tab:
+
 
                 st.subheader(
                     "Confirmed Decisions"
                 )
 
 
-                if intelligence.decisions:
+                if (
+                    intelligence.decisions
+                ):
 
 
-                    for number, decision in enumerate(
+                    for index, decision in enumerate(
                         intelligence.decisions,
                         start=1
                     ):
 
 
                         st.markdown(
-                            f"### Decision {number}"
+                            f"### Decision {index}"
                         )
 
 
@@ -899,7 +1015,7 @@ if uploaded_audio is not None:
 
 
                         st.caption(
-                            f"Confidence: "
+                            "Confidence: "
                             f"{decision.confidence:.0%}"
                         )
 
@@ -908,9 +1024,13 @@ if uploaded_audio is not None:
                             "View supporting evidence"
                         ):
 
+
                             st.write(
                                 decision.evidence
                             )
+
+
+                        st.divider()
 
 
                 else:
@@ -922,49 +1042,55 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # ACTION ITEMS TAB
+            # 26. ACTION ITEMS TAB
             # =================================================
 
-            with actions_tab:
+            with action_tab:
+
 
                 st.subheader(
                     "Action Items"
                 )
 
 
-                if intelligence.action_items:
+                if (
+                    intelligence.action_items
+                ):
 
 
                     action_rows = []
 
 
-                    for action in (
+                    for item in (
                         intelligence.action_items
                     ):
 
 
-                        action_rows.append({
+                        action_rows.append(
+                            {
+                                "Action":
+                                    item.action,
 
-                            "Action":
-                                action.action,
+                                "Owner":
+                                    item.owner
+                                    or "Not specified",
 
-                            "Owner":
-                                action.owner
-                                or "Not specified",
+                                "Deadline":
+                                    item.deadline
+                                    or "Not specified",
 
-                            "Deadline":
-                                action.deadline
-                                or "Not specified",
+                                "Status":
+                                    item.status,
 
-                            "Status":
-                                action.status,
+                                "Confidence":
+                                    (
+                                        f"{item.confidence:.0%}"
+                                    )
+                            }
+                        )
 
-                            "Confidence":
-                                f"{action.confidence:.0%}"
-                        })
 
-
-                    actions_df = (
+                    action_dataframe = (
                         pd.DataFrame(
                             action_rows
                         )
@@ -973,7 +1099,7 @@ if uploaded_audio is not None:
 
                     st.dataframe(
 
-                        actions_df,
+                        action_dataframe,
 
                         use_container_width=True,
 
@@ -982,45 +1108,50 @@ if uploaded_audio is not None:
 
 
                     st.subheader(
-                        "Supporting Evidence"
+                        "Action Evidence"
                     )
 
 
-                    for number, action in enumerate(
+                    for index, item in enumerate(
                         intelligence.action_items,
                         start=1
                     ):
 
 
                         with st.expander(
-                            f"Action {number}: "
-                            f"{action.action}"
+                            f"Action {index}: "
+                            f"{item.action}"
                         ):
 
+
                             st.write(
-                                action.evidence
+                                item.evidence
                             )
 
 
                 else:
 
                     st.info(
-                        "No action items identified."
+                        "No action items were identified."
                     )
 
 
             # =================================================
-            # FOLLOW-UP TAB
+            # 27. FOLLOW-UP TAB
             # =================================================
 
             with followup_tab:
+
 
                 st.subheader(
                     "Unresolved Issues"
                 )
 
 
-                if intelligence.unresolved_issues:
+                if (
+                    intelligence.unresolved_issues
+                ):
+
 
                     for issue in (
                         intelligence.unresolved_issues
@@ -1030,11 +1161,15 @@ if uploaded_audio is not None:
                             f"- {issue}"
                         )
 
+
                 else:
 
                     st.success(
-                        "No unresolved issues identified."
+                        "✅ No unresolved issues identified."
                     )
+
+
+                st.divider()
 
 
                 st.subheader(
@@ -1042,7 +1177,10 @@ if uploaded_audio is not None:
                 )
 
 
-                if intelligence.ambiguities:
+                if (
+                    intelligence.ambiguities
+                ):
+
 
                     for ambiguity in (
                         intelligence.ambiguities
@@ -1052,21 +1190,29 @@ if uploaded_audio is not None:
                             f"- {ambiguity}"
                         )
 
+
                 else:
 
                     st.success(
-                        "No significant ambiguities identified."
+                        "✅ No significant ambiguities identified."
                     )
 
 
             # =================================================
-            # TECHNICAL TAB
+            # 28. TECHNICAL TAB
             # =================================================
 
             with technical_tab:
 
+
                 st.subheader(
-                    "Processing Information"
+                    "System Processing Information"
+                )
+
+
+                total_processing_time = (
+                    whisper_time +
+                    gemini_time
                 )
 
 
@@ -1076,20 +1222,18 @@ if uploaded_audio is not None:
                             "Speech Recognition",
                             "Language Model",
                             "Transcript Words",
-                            "Whisper Time",
-                            "Gemini Time",
+                            "Whisper Processing Time",
+                            "Gemini Processing Time",
                             "Total AI Processing Time"
                         ],
 
                         "Value": [
                             WHISPER_MODEL_NAME,
                             GEMINI_MODEL,
-                            transcript_words,
-                            f"{transcription_time:.2f} sec",
-                            f"{intelligence_time:.2f} sec",
-                            (
-                                f"{transcription_time + intelligence_time:.2f} sec"
-                            )
+                            transcript_word_count,
+                            f"{whisper_time:.2f} sec",
+                            f"{gemini_time:.2f} sec",
+                            f"{total_processing_time:.2f} sec"
                         ]
                     }
                 )
@@ -1106,22 +1250,121 @@ if uploaded_audio is not None:
 
 
             # =================================================
-            # DOWNLOAD COMPLETE REPORT
+            # 29. CREATE DOWNLOADABLE MEETING REPORT
             # =================================================
 
             st.divider()
 
 
+            decision_text = "\n".join(
+                [
+                    (
+                        f"{index}. {decision.decision}\n"
+                        f"   Evidence: {decision.evidence}\n"
+                        f"   Confidence: "
+                        f"{decision.confidence:.0%}"
+                    )
+
+                    for index, decision in enumerate(
+                        intelligence.decisions,
+                        start=1
+                    )
+                ]
+            )
+
+
+            if not decision_text:
+
+                decision_text = (
+                    "No confirmed decisions identified."
+                )
+
+
+            action_text = "\n".join(
+                [
+                    (
+                        f"{index}. {item.action}\n"
+                        f"   Owner: "
+                        f"{item.owner or 'Not specified'}\n"
+                        f"   Deadline: "
+                        f"{item.deadline or 'Not specified'}\n"
+                        f"   Status: {item.status}\n"
+                        f"   Evidence: {item.evidence}\n"
+                        f"   Confidence: "
+                        f"{item.confidence:.0%}"
+                    )
+
+                    for index, item in enumerate(
+                        intelligence.action_items,
+                        start=1
+                    )
+                ]
+            )
+
+
+            if not action_text:
+
+                action_text = (
+                    "No action items identified."
+                )
+
+
+            topics_text = "\n".join(
+                [
+                    f"- {topic}"
+                    for topic in (
+                        intelligence.key_topics
+                    )
+                ]
+            )
+
+
+            unresolved_text = "\n".join(
+                [
+                    f"- {issue}"
+                    for issue in (
+                        intelligence.unresolved_issues
+                    )
+                ]
+            )
+
+
+            if not unresolved_text:
+
+                unresolved_text = (
+                    "No unresolved issues identified."
+                )
+
+
+            ambiguity_text = "\n".join(
+                [
+                    f"- {item}"
+                    for item in (
+                        intelligence.ambiguities
+                    )
+                ]
+            )
+
+
+            if not ambiguity_text:
+
+                ambiguity_text = (
+                    "No significant ambiguities identified."
+                )
+
+
             report_text = f"""
-AI MEETING INTELLIGENCE REPORT
+AI MEETING INTELLIGENCE SYSTEM
 ==============================
 
-Meeting Title:
+MEETING TITLE
+-------------
+
 {intelligence.meeting_title}
 
 
-SUMMARY
--------
+MEETING SUMMARY
+---------------
 
 {intelligence.summary}
 
@@ -1129,61 +1372,53 @@ SUMMARY
 KEY TOPICS
 ----------
 
-{chr(10).join(
-    "- " + topic
-    for topic in intelligence.key_topics
-)}
+{topics_text}
 
 
-DECISIONS
----------
+CONFIRMED DECISIONS
+-------------------
 
-{chr(10).join(
-    f"{i+1}. {d.decision}"
-    for i, d in enumerate(
-        intelligence.decisions
-    )
-) or "No confirmed decisions identified."}
+{decision_text}
 
 
 ACTION ITEMS
 ------------
 
-{chr(10).join(
-    f"{i+1}. {a.action} | "
-    f"Owner: {a.owner or 'Not specified'} | "
-    f"Deadline: {a.deadline or 'Not specified'}"
-    for i, a in enumerate(
-        intelligence.action_items
-    )
-) or "No action items identified."}
+{action_text}
 
 
 UNRESOLVED ISSUES
 -----------------
 
-{chr(10).join(
-    "- " + item
-    for item in intelligence.unresolved_issues
-) or "None identified."}
+{unresolved_text}
 
 
 AMBIGUITIES
 -----------
 
-{chr(10).join(
-    "- " + item
-    for item in intelligence.ambiguities
-) or "None identified."}
+{ambiguity_text}
 
 
-SYSTEM INFORMATION
-------------------
+SYSTEM PROCESSING INFORMATION
+-----------------------------
 
-Whisper Model: {WHISPER_MODEL_NAME}
-Gemini Model: {GEMINI_MODEL}
-Whisper Processing Time: {transcription_time:.2f} seconds
-Gemini Processing Time: {intelligence_time:.2f} seconds
+Whisper Model:
+{WHISPER_MODEL_NAME}
+
+Gemini Model:
+{GEMINI_MODEL}
+
+Transcript Word Count:
+{transcript_word_count}
+
+Whisper Processing Time:
+{whisper_time:.2f} seconds
+
+Gemini Processing Time:
+{gemini_time:.2f} seconds
+
+Total AI Processing Time:
+{whisper_time + gemini_time:.2f} seconds
 
 
 Generated by:
@@ -1192,13 +1427,26 @@ MSc Computing Project Prototype
 """
 
 
+            # =================================================
+            # 30. DOWNLOAD COMPLETE REPORT
+            # =================================================
+
+            st.subheader(
+                "📥 Export Meeting Intelligence"
+            )
+
+
             st.download_button(
 
-                label="📥 Download Complete Meeting Report",
+                label=(
+                    "Download Complete Meeting Report"
+                ),
 
                 data=report_text,
 
-                file_name="AIMIS_meeting_report.txt",
+                file_name=(
+                    "AIMIS_meeting_intelligence_report.txt"
+                ),
 
                 mime="text/plain",
 
@@ -1209,35 +1457,74 @@ MSc Computing Project Prototype
 
 
         # ====================================================
-        # ERROR HANDLING
+        # 31. ERROR HANDLING
         # ====================================================
 
         except Exception as error:
 
+
             st.error(
-                "The meeting could not be processed."
+                "❌ The meeting could not be processed."
             )
 
-            st.exception(
+
+            error_text = str(
                 error
             )
 
 
+            if (
+                "429" in error_text
+                or
+                "too_many_requests" in error_text.lower()
+            ):
+
+
+                st.warning(
+                    "Gemini is temporarily rate limited. "
+                    "Please wait and try again."
+                )
+
+
+            elif (
+                "GEMINI_API_KEY"
+                in error_text
+            ):
+
+
+                st.warning(
+                    "The Gemini API key has not been "
+                    "configured correctly."
+                )
+
+
+            else:
+
+
+                st.exception(
+                    error
+                )
+
+
         # ====================================================
-        # REMOVE TEMPORARY AUDIO
+        # 32. CLEAN TEMPORARY AUDIO
         # ====================================================
 
         finally:
 
+
             try:
+
 
                 if os.path.exists(
                     audio_path
                 ):
 
+
                     os.remove(
                         audio_path
                     )
+
 
             except Exception:
 
@@ -1245,32 +1532,22 @@ MSc Computing Project Prototype
 
 
 # ============================================================
-# 15. FOOTER
+# 33. FOOTER
 # ============================================================
 
 st.divider()
 
+
 st.markdown(
     """
-    <div class="footer">
-
-    <strong>
-    AI Meeting Intelligence System (AIMIS)
-    </strong>
-
-    <br>
-
-    MSc Computing Project Prototype
-
-    <br><br>
-
-    Whisper Speech Recognition
-    •
-    Gemini Meeting Intelligence
-    •
-    Structured Decision & Action Extraction
-
-    </div>
-    """,
+<div class="footer-box">
+<strong>AI Meeting Intelligence System (AIMIS)</strong>
+<br>
+MSc Computing Project Prototype
+<br><br>
+Whisper Speech Recognition • Gemini Meeting Intelligence •
+Structured Decision and Action Extraction
+</div>
+""",
     unsafe_allow_html=True
 )
