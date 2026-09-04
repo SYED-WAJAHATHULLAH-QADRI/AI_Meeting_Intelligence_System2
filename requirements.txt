@@ -1,6 +1,7 @@
 streamlit
-pandas
 openai-whisper
 google-genai
+pydantic
+pandas
+numpy
 torch
-ffmpeg-python
